@@ -12,7 +12,7 @@ class TestEnv(unittest.TestCase):
 
     # default options used for the c++ compiler
     PYTHRAN_CXX_FLAGS = ["-O0", "-fno-implicit-inline-templates", "-fopenmp",
-            '-Wall', '-Wno-unknown-pragmas']
+            '-Wall', '-Wno-unknown-pragmas','-L/opt/local/lib']
 
     def assertAlmostEqual(self, ref, res):
         if hasattr(ref, '__iter__'):
@@ -71,7 +71,7 @@ class TestEnv(unittest.TestCase):
             cxx_compiled = pythran_compile(os.environ.get("CXX", "c++"),
                                            cxx_code,
                                            cxxflags=TestEnv.PYTHRAN_CXX_FLAGS,
-                                           check=False)
+                                           check=True)
             prelude and prelude()
             pymod = load_dynamic(modname, cxx_compiled)
 
