@@ -77,7 +77,10 @@ class TestCommand(Command):
         pass
 
     def run(self):
-        where = os.path.join('pythran', 'tests')
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        sys.path.remove(current_dir)
+        where = os.path.join(current_dir, 'pythran', 'tests')
+
         try:
             import py
             import xdist
