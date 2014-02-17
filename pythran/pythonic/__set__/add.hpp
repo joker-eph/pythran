@@ -14,7 +14,12 @@ namespace pythonic {
             }
         template<class T, class F>
             void add(types::set<T> &&s, F const& value) {
-                s.add(value);
+                // nothing have to be done as we work on rvalue
+            }
+        template<class F>
+            void add(types::empty_set const&s, F const& value) {
+                //nothing otherwise it should be a real set with nothing into
+                // instead of an empty set
             }
         PROXY(pythonic::__set__, add);
 
