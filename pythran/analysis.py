@@ -1443,6 +1443,7 @@ class LazynessAnalysis(FunctionAnalysis):
         self.use = dict()
         self.dead = set()
         self.in_loop = False
+        self.in_omp = False
         super(LazynessAnalysis, self).__init__(ArgumentEffects, Aliases,
                                                PureExpressions)
 
@@ -1475,18 +1476,30 @@ class LazynessAnalysis(FunctionAnalysis):
             if node.id in self.result:
                 ex_value = max(self.result[node.id], ex_value)
             self.result[node.id] = ex_value
+            if self.in_omp:
+                self.result[node.id] = float('inf')
             for alias in state[node.id]:
                 if alias in self.name_count:
-                    self.name_count[alias] = 0
-        self.name_count[node] = 0
+                    self.name_count[alias] = float('inf') if self.in_omp else 0
+        self.name_count[node] = float('inf') if self.in_omp else 0
         self.use[node.id] = set(from_)
         self.modify(node, state)
+
+    def generic_visit(self, node):
+        old_omp = self.in_omp
+        if md.get(node, openmp.OMPDirective):
+            self.in_omp = True
+        super(LazynessAnalysis, self).generic_visit(node)
+        self.in_omp = old_omp
 
     def visit_FunctionDef(self, node):
         self.ids = self.passmanager.gather(Identifiers, node, self.ctx)
         self.generic_visit(node)
 
     def visit_Assign(self, node):
+        old_omp = self.in_omp
+        if md.get(node, openmp.OMPDirective):
+            self.in_omp = True
         self.visit(node.value)
         ids = self.passmanager.gather(Identifiers, node.value, self.ctx)
         for target in node.targets:
@@ -1503,8 +1516,12 @@ class LazynessAnalysis(FunctionAnalysis):
                 self.result[var_name.id] = float('inf')
             else:
                 raise PythranSyntaxError("Assign to unknown node", node)
+        self.in_omp = old_omp
 
     def visit_AugAssign(self, node):
+        old_omp = self.in_omp
+        if md.get(node, openmp.OMPDirective):
+            self.in_omp = True
         #augassigned variable can't be lazy
         self.visit(node.value)
         if isinstance(node.target, ast.Name):
@@ -1516,6 +1533,7 @@ class LazynessAnalysis(FunctionAnalysis):
             self.result[var_name.id] = float('inf')
         else:
             raise PythranSyntaxError("AugAssign to unknown node", node)
+        self.in_omp = old_omp
 
     def visit_Name(self, node):
         if isinstance(node.ctx, ast.Load) and node.id in self.use:
@@ -1524,11 +1542,11 @@ class LazynessAnalysis(FunctionAnalysis):
             for alias in self.aliases[node].aliases.union(set(name_from_id)):
                 # we only care about variable local to the function
                 if isinstance(alias, ast.Name) and alias.id in self.ids:
-                    if self.in_loop:
-                        self.name_count[alias] = float('inf')
                     if node.id in self.dead:
                         # if a variable is dead, all it's aliases are dead too
                         self.dead.add(alias.id)  # PB: may be not the best
+                        self.name_count[alias] = float('inf')
+                    elif self.in_loop or self.in_omp:
                         self.name_count[alias] = float('inf')
                     elif alias in self.name_count:
                         self.name_count[alias] += 1
@@ -1539,6 +1557,9 @@ class LazynessAnalysis(FunctionAnalysis):
             self.use[node.id] = set()
 
     def visit_If(self, node):
+        old_omp = self.in_omp
+        if md.get(node, openmp.OMPDirective):
+            self.in_omp = True
         self.visit(node.test)
         old_count = dict(self.name_count)
         old_dead = set(self.dead)
@@ -1577,10 +1598,14 @@ class LazynessAnalysis(FunctionAnalysis):
 
         #dead var are still dead
         self.dead.update(mid_dead)
+        self.in_omp = old_omp
 
     visit_IfExp = visit_If
 
     def visit_For(self, node):
+        old_omp = self.in_omp
+        if md.get(node, openmp.OMPDirective):
+            self.in_omp = True
         ids = self.passmanager.gather(Identifiers, node.iter, self.ctx)
         for id in ids:
             self.result[id] = float('inf')  # iterate value can't be lazy
@@ -1595,8 +1620,12 @@ class LazynessAnalysis(FunctionAnalysis):
         self.in_loop = False
 
         map(self.visit, node.orelse)
+        self.in_omp = old_omp
 
     def visit_While(self, node):
+        old_omp = self.in_omp
+        if md.get(node, openmp.OMPDirective):
+            self.in_omp = True
         self.visit(node.test)
 
         self.in_loop = True
@@ -1604,8 +1633,12 @@ class LazynessAnalysis(FunctionAnalysis):
         self.in_loop = False
 
         map(self.visit, node.orelse)
+        self.in_omp = old_omp
 
     def visit_Call(self, node):
+        old_omp = self.in_omp
+        if md.get(node, openmp.OMPDirective):
+            self.in_omp = True
         map(self.visit, node.args)
         #when there is an argument effet, we apply "modify" to the arg
         #and as it we don't know how it is modify, it is set to inf
@@ -1629,6 +1662,7 @@ class LazynessAnalysis(FunctionAnalysis):
             else:
                 for arg in node.args:
                     self.modify(arg, self.aliases[node.func].state)
+        self.in_omp = old_omp
 
     def run(self, node, ctx):
         super(LazynessAnalysis, self).run(node, ctx)
