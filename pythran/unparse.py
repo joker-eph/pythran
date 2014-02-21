@@ -415,10 +415,12 @@ class Unparser:
         self.write(")")
 
     def _Set(self, t):
-        assert(t.elts)  # should be at least one element
-        self.write("{")
-        interleave(lambda: self.write(", "), self.dispatch, t.elts)
-        self.write("}")
+        if t.elts:
+            self.write("{")
+            interleave(lambda: self.write(", "), self.dispatch, t.elts)
+            self.write("}")
+        else:
+            self.write("set()")
 
     def _Dict(self, t):
         self.write("{")
